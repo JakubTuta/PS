@@ -29,12 +29,18 @@ for i in range(10):
     threads.append(thread)
 
 while True:
-    command = input("Action: ")
+    try:
+        command = input("Action: ")
+    except:
+        pass
 
     if command == "end":
-        for i, exit_event in enumerate(exit_events):
+        for exit_event in exit_events:
             exit_event.set()
-            threads[i].join()
+
+        for thread in threads:
+            thread.join()
+
         break
 
     try:

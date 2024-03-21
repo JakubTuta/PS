@@ -14,7 +14,10 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         print(f"Connection from {guest_ip}")
 
         while True:
-            data_received = connection.recv(1024).decode()
+            try:
+                data_received = connection.recv(1024).decode()
+            except:
+                break
 
             if data_received is None or data_received == "":
                 break

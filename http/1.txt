@@ -1,0 +1,23 @@
+
+    <tr>
+        <td>towar 1</td>
+        <td>100</td>
+    </tr>
+    
+    <tr>
+        <td>towar 2</td>
+        <td>300</td>
+    </tr>
+    <tr>
+        <td>towar 3</td>
+        <td>200</td>
+    </tr>
+    
+    <tr>
+        <td>towar 4</td>
+        <td>500</td>
+    </tr>
+    <tr>
+        <td>towar 5</td>
+        <td>600</td>
+    </tr>

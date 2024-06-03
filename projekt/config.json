@@ -1,0 +1,6 @@
+{
+    "ServerID": "server",
+    "ListenAddress": "0.0.0.0",
+    "ListenPort": 2137,
+    "TimeOut": 5
+}

@@ -6,22 +6,23 @@ import threading
 config = {}
 
 
+class Server:
+    def __init__(self):
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        self.server_socket.bind((config["ListenAddress"], config["ListenPort"]))
+
+        self.server_socket.listen(1)
+
+        self.server_socket.settimeout(config["TimeOut"])
+
+
 def load_config():
     with open("config.json", "r") as file:
         data = json.load(file)
 
         for key, value in data.items():
             config[key] = value
-
-
-def create_server_socket():
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    server_socket.bind((config["ListenAddress"], config["ListenPort"]))
-
-    server_socket.listen(config["TimeOut"])
-
-    return server_socket
 
 
 def listening(server_socket):
@@ -39,7 +40,7 @@ def start_listening_thread(server_socket):
 def main():
     load_config()
 
-    server_socket = create_server_socket()
+    server_socket = Server()
 
     listening_thread = start_listening_thread(server_socket)
 

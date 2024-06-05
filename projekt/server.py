@@ -2,6 +2,7 @@ import json
 import queue
 import socket
 import threading
+import time
 
 config = {}
 
@@ -15,8 +16,12 @@ class Server:
         self.server_socket.settimeout(config["TimeOut"])
 
         self.clients = {}
+        self.received_messages = queue.Queue()
+        self.messages_to_send = queue.Queue()
+        self.subjects = []
 
         self.stop_server = False
+        self.stop_messages = False
 
     def create_listening_thread(self):
         thread = threading.Thread(target=self.__listening_thread)
@@ -31,6 +36,13 @@ class Server:
 
         self.clients[client_ip]["socket"] = client_socket
         self.clients[client_ip]["thread"] = thread
+
+    def create_messages_thread(self):
+        thread = threading.Thread(target=self.__messages_thread)
+        thread.start()
+
+    def stop_messages_thread(self):
+        self.stop_messages = True
 
     def __listening_thread(self):
         self.server_socket.listen(1)
@@ -57,6 +69,8 @@ class Server:
                 if len(client_socket.recv(1, socket.MSG_PEEK)):
                     data = client_socket.recv(1024).decode()
 
+                    self.received_messages.put((client_socket, data))
+
             except socket.timeout:
                 pass
 
@@ -65,6 +79,11 @@ class Server:
                 del self.clients[client_ip]
 
                 return
+
+    def __messages_thread(self):
+        while not self.stop_messages:
+            if self.received_messages.empty():
+                time.sleep(0.001)
 
 
 def load_config():

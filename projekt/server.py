@@ -85,6 +85,43 @@ class Server:
             if self.received_messages.empty():
                 time.sleep(0.001)
 
+            client_socket, message = self.received_messages.get()
+
+            if Server.__message_validation(client_socket, message):
+                pass
+
+    def __handle_KOM_message(self, client_socket, message):
+        message_type = message["type"]
+
+        if message_type == "register":
+            pass
+
+        if message_type == "withdraw":
+            pass
+
+        if message_type == "message":
+            pass
+
+        if message_type == "status":
+            pass
+
+    @staticmethod
+    def __message_validation(message):
+        message_keys = ("type", "id", "topic", "mode", "timestamp", "payload")
+
+        allowed_types = (
+            "register",
+            "withdraw",
+            "message",
+            "status",
+        )
+
+        return (
+            isinstance(message, dict)
+            and all(key in message for key in message_keys)
+            and message["type"] in allowed_types
+        )
+
 
 def load_config():
     with open("config.json", "r") as file:

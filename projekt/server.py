@@ -4,6 +4,17 @@ import socket
 import threading
 import time
 
+""" subject:
+{
+    topic: str
+    creator_id: str
+    subscribers:
+        [
+            subscriber_socket
+        ]
+}
+"""
+
 config = {}
 
 
@@ -69,7 +80,9 @@ class Server:
                 if len(client_socket.recv(1, socket.MSG_PEEK)):
                     data = client_socket.recv(1024).decode()
 
-                    self.received_messages.put((client_socket, data))
+                    self.received_messages.put(
+                        {"socket": client_socket, "message": data}
+                    )
 
             except socket.timeout:
                 pass
@@ -85,25 +98,54 @@ class Server:
             if self.received_messages.empty():
                 time.sleep(0.001)
 
-            client_socket, message = self.received_messages.get()
+            data = self.received_messages.get()
 
-            if Server.__message_validation(client_socket, message):
-                pass
+            client_socket = data["socket"]
+            message = data["message"]
+
+            if Server.__message_validation(message):
+                self.__handle_KOM(client_socket, message)
+
+    def __handle_KOM(self, client_socket, message):
+        match message["type"]:
+            case "register":
+                self.__handle_KOM_register(client_socket, message)
+
+            case "withdraw":
+                self.__handle_KOM_withdraw(client_socket, message)
+
+            case "message":
+                self.__handle_KOM_message(client_socket, message)
+
+            case "status":
+                self.__handle_KOM_status(client_socket, message)
+
+    def __handle_KOM_register(self, client_socket, message):
+        found_subject = self.__find_subject(message["topic"])
+
+        if message["mode"] == "subscriber":
+            if not found_subject:
+                return
+
+    def __handle_KOM_withdraw(self, client_socket, message):
+        pass
 
     def __handle_KOM_message(self, client_socket, message):
-        message_type = message["type"]
+        pass
 
-        if message_type == "register":
-            pass
+    def __handle_KOM_status(self, client_socket, message):
+        pass
 
-        if message_type == "withdraw":
-            pass
+    def __find_subject(self, subject_topic):
+        try:
+            found_subject = next(
+                subject for subject in self.subjects if subject.topic == subject_topic
+            )
 
-        if message_type == "message":
-            pass
+            return found_subject
 
-        if message_type == "status":
-            pass
+        except StopIteration:
+            return
 
     @staticmethod
     def __message_validation(message):
@@ -116,10 +158,13 @@ class Server:
             "status",
         )
 
+        allowed_modes = ("producer", "subscriber")
+
         return (
             isinstance(message, dict)
             and all(key in message for key in message_keys)
             and message["type"] in allowed_types
+            and message["mode"] in allowed_modes
         )
 
 

@@ -8,10 +8,25 @@ import time
 {
     topic: str
     creator_id: str
+    creator_socket: socket
     subscribers:
         [
-            subscriber_socket
+            {
+                id: str
+                socket: socket
+            }
         ]
+}
+"""
+
+""" received_message:
+{
+    type: str = 'register', 'withdraw', 'message', 'status'
+    id: str
+    topic: str
+    mode: str = 'producer', 'subscriber'
+    timestamp: datetime
+    payload: {}
 }
 """
 
@@ -112,10 +127,10 @@ class Server:
                 self.__handle_KOM_register(client_socket, message)
 
             case "withdraw":
-                self.__handle_KOM_withdraw(client_socket, message)
+                self.__handle_KOM_withdraw(message)
 
             case "message":
-                self.__handle_KOM_message(client_socket, message)
+                self.__handle_KOM_message(message)
 
             case "status":
                 self.__handle_KOM_status(client_socket, message)
@@ -123,18 +138,65 @@ class Server:
     def __handle_KOM_register(self, client_socket, message):
         found_subject = self.__find_subject(message["topic"])
 
-        if message["mode"] == "subscriber":
-            if not found_subject:
-                return
+        if message["mode"] == "subscriber" and found_subject:
+            found_subject["subscribers"].append(
+                {
+                    "id": message["id"],
+                    "socket": "client_socket",
+                }
+            )
 
-    def __handle_KOM_withdraw(self, client_socket, message):
-        pass
+        elif (
+            message["mode"] == "producer"
+            and not found_subject
+            and found_subject["creator_id"] != message["id"]
+        ):
+            self.subjects.append(
+                {
+                    "topic": message["topic"],
+                    "creator_id": message["id"],
+                    "creator_socket": client_socket,
+                    "subscribers": [],
+                }
+            )
 
-    def __handle_KOM_message(self, client_socket, message):
-        pass
+    def __handle_KOM_withdraw(self, message):
+        found_subject = self.__find_subject(message["topic"])
+
+        if not found_subject:
+            return
+
+        if message["mode"] == "producer":
+            if self.__check_if_can_close_socket(found_subject["creator_id"]):
+                found_subject["creator_socket"].close()
+
+            for id, subscriber in enumerate(found_subject["subscribers"]):
+                if self.__check_if_can_close_socket(subscriber["id"]):
+                    subscriber["socket"].close()
+                    del found_subject["subscribers"][id]
+
+            self.__delete_subject(message["topic"])
+
+        else:
+            for id, subscriber in found_subject["subscribers"]:
+                if subscriber["id"] == message["id"]:
+                    del found_subject["subscribers"][id]
+
+                    return
+
+    def __handle_KOM_message(self, message):
+        found_subject = message["topic"]
+
+        new_KKW_message = {
+            "subscribers": map(
+                lambda subscriber: subscriber["socket"], found_subject["subscribers"]
+            ),
+        }
 
     def __handle_KOM_status(self, client_socket, message):
-        pass
+        new_KKW_message = {
+            "socket": client_socket,
+        }
 
     def __find_subject(self, subject_topic):
         try:
@@ -146,6 +208,18 @@ class Server:
 
         except StopIteration:
             return
+
+    def __check_if_can_close_socket(self, client_id):
+        for subject in self.subjects:
+            if subject["creator_id"] == client_id:
+                return False
+
+            if any(
+                subscriber["id"] == client_id for subscriber in subject["subscribers"]
+            ):
+                return False
+
+        return True
 
     @staticmethod
     def __message_validation(message):

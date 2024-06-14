@@ -1,3 +1,4 @@
+import datetime
 import json
 import queue
 import socket
@@ -19,8 +20,21 @@ import time
 }
 """
 
-""" received_message:
+""" received_message (KKO):
 {
+    type: str = 'register', 'withdraw', 'message', 'status'
+    id: str
+    topic: str
+    mode: str = 'producer', 'subscriber'
+    timestamp: datetime
+    payload: {}
+}
+"""
+
+""" message_to_send (KKW):
+{
+    creator_socket: socket | None
+    subscribers: [socket]
     type: str = 'register', 'withdraw', 'message', 'status'
     id: str
     topic: str
@@ -64,8 +78,11 @@ class Server:
         self.clients[client_ip]["thread"] = thread
 
     def create_messages_thread(self):
-        thread = threading.Thread(target=self.__messages_thread)
-        thread.start()
+        thread_KKO = threading.Thread(target=self.__messages_KKO_thread)
+        thread_KKW = threading.Thread(target=self.__messages_KKW_thread)
+
+        thread_KKO.start()
+        thread_KKW.start()
 
     def stop_messages_thread(self):
         self.stop_messages = True
@@ -108,7 +125,7 @@ class Server:
 
                 return
 
-    def __messages_thread(self):
+    def __messages_KKO_thread(self):
         while not self.stop_messages:
             if self.received_messages.empty():
                 time.sleep(0.001)
@@ -120,6 +137,13 @@ class Server:
 
             if Server.__message_validation(message):
                 self.__handle_KOM(client_socket, message)
+
+    def __messages_KKW_thread(self):
+        while True:
+            if self.messages_to_send.empty():
+                time.sleep(0.001)
+
+            message = self.messages_to_send.get()
 
     def __handle_KOM(self, client_socket, message):
         match message["type"]:
@@ -191,12 +215,32 @@ class Server:
             "subscribers": map(
                 lambda subscriber: subscriber["socket"], found_subject["subscribers"]
             ),
+            "creator_socket": None,
+            **message,
         }
 
+        self.messages_to_send.put(new_KKW_message)
+
     def __handle_KOM_status(self, client_socket, message):
+        payload = map(
+            lambda subject: {
+                "topic": subject["topic"],
+                "creator_id": subject["creator_id"],
+            },
+            self.subjects,
+        )
+
         new_KKW_message = {
-            "socket": client_socket,
+            "creator_socket": client_socket,
+            "subscribers": [],
+            "type": "reject",
+            "id": message["id"],
+            "topic": "logs",
+            "timestamp": message["timestamp"],
+            "payload": payload,
         }
+
+        self.messages_to_send.put(new_KKW_message)
 
     def __find_subject(self, subject_topic):
         try:

@@ -5,6 +5,16 @@ import socket
 import threading
 import time
 
+""" clients:
+[
+    client_ip:
+    {
+        is_stop: bool
+        socket: socket
+    }   
+]
+"""
+
 """ subject:
 {
     topic: str
@@ -35,10 +45,9 @@ import time
 {
     creator_socket: socket | None
     subscribers: [socket]
-    type: str = 'register', 'withdraw', 'message', 'status'
+    type: str = 'reject'
     id: str
-    topic: str
-    mode: str = 'producer', 'subscriber'
+    topic: str = 'logs'
     timestamp: datetime
     payload: {}
 }
@@ -71,11 +80,15 @@ class Server:
         self.stop_server = True
 
     def create_client_handle_thread(self, client_socket, client_ip):
-        thread = threading.Thread(target=self.__client_handle, args=(client_socket,))
+        new_client = {"is_stop": False, "socket": client_socket}
+        self.clients[client_ip] = new_client
+
+        thread = threading.Thread(target=self.__client_handle, args=(new_client,))
         thread.start()
 
-        self.clients[client_ip]["socket"] = client_socket
-        self.clients[client_ip]["thread"] = thread
+    def stop_client_handle_thread(self):
+        for client in self.clients:
+            client["is_stop"] = True
 
     def create_messages_thread(self):
         thread_KKO = threading.Thread(target=self.__messages_KKO_thread)
@@ -86,6 +99,63 @@ class Server:
 
     def stop_messages_thread(self):
         self.stop_messages = True
+
+    def user_interface(self):
+        while True:
+            print(
+                "Available commands: (quit, users/clients, subjects, server info, stop server)"
+            )
+            user_command = input("Enter command: ")
+
+            match user_command.lower():
+                case "quit":
+                    break
+
+                case "users" | "clients":
+                    self.__print_clients()
+
+                case "subjects":
+                    self.__print_subjects()
+
+                case "server info":
+                    self.__print_server_info()
+
+                case "stop server":
+                    self.__stop_server()
+
+                case _:
+                    print("Invalid command")
+
+    def __print_clients(self):
+        if not len(self.clients):
+            return
+
+        print("Currently active users:")
+
+        for client_ip in self.clients.keys():
+            print(client_ip)
+
+        print()
+
+    def __print_subjects(self):
+        if not len(self.subjects):
+            return
+
+        print("Current subjects:")
+
+        for subject in self.subjects:
+            print(f"Subject: {subject['topic']}")
+            print(f"Creator id: {subject['creator_id']}")
+            print(f"Number of subscribers: {len(subject['subscribers'])}")
+            print()
+
+    def __print_server_info(self):
+        print(f"Host: {config['ListenAddress']}")
+        print(f"Port: {config['ListenPort']}")
+        print()
+
+    def __stop_server(self):
+        pass
 
     def __listening_thread(self):
         self.server_socket.listen(1)
@@ -104,26 +174,25 @@ class Server:
                 self.stop_server = True
                 return
 
-    def __client_handle(self, client_socket, client_ip):
-        client_socket.settimeout(config["TimeOut"])
+    def __client_handle(self, client):
+        client["socket"].settimeout(config["TimeOut"])
 
-        while True:
+        while not client["is_stop"]:
             try:
-                if len(client_socket.recv(1, socket.MSG_PEEK)):
-                    data = client_socket.recv(1024).decode()
+                if len(client["socket"].recv(1, socket.MSG_PEEK)):
+                    data = client["socket"].recv(1024).decode()
 
                     self.received_messages.put(
-                        {"socket": client_socket, "message": data}
+                        {"socket": client["socket"], "message": data}
                     )
 
             except socket.timeout:
                 pass
 
             except:
-                self.clients[client_ip]["socket"].close()
-                del self.clients[client_ip]
+                break
 
-                return
+        client["socket"].close()
 
     def __messages_KKO_thread(self):
         while not self.stop_messages:
@@ -139,7 +208,7 @@ class Server:
                 self.__handle_KOM(client_socket, message)
 
     def __messages_KKW_thread(self):
-        while True:
+        while not self.stop_messages:
             if self.messages_to_send.empty():
                 time.sleep(0.001)
 

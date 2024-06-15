@@ -133,7 +133,7 @@ class Server:
         print("Currently active users:")
 
         for client_ip in self.clients.keys():
-            print(client_ip)
+            print(f'\t{client_ip}')
 
         print()
 
@@ -144,9 +144,13 @@ class Server:
         print("Current subjects:")
 
         for subject in self.subjects:
-            print(f"Subject: {subject['topic']}")
-            print(f"Creator id: {subject['creator_id']}")
-            print(f"Number of subscribers: {len(subject['subscribers'])}")
+            print(f"\tSubject: {subject['topic']}")
+            print(f'\tSubscribers:')
+            
+            if len(subject['subscribers']):
+                for subscriber in subject['subscribers']:
+                    print(f'\t\t{subscriber['id']}')
+            
             print()
 
     def __print_server_info(self):
@@ -155,7 +159,9 @@ class Server:
         print()
 
     def __stop_server(self):
-        pass
+        self.stop_client_handle_thread()
+        self.stop_listening_thread()
+        self.stop_messages_thread()
 
     def __listening_thread(self):
         self.server_socket.listen(1)

@@ -71,6 +71,18 @@ class Server:
 
         self.stop_server = False
         self.stop_messages = False
+        
+        self.start_server()
+        
+    def start_server(self):
+        self.create_client_handle_thread()
+        self.create_listening_thread()
+        self.create_messages_thread()
+    
+    def stop_server(self):
+        self.stop_client_handle_thread()
+        self.stop_listening_thread()
+        self.stop_messages_thread()
 
     def create_listening_thread(self):
         thread = threading.Thread(target=self.__listening_thread)
@@ -121,7 +133,7 @@ class Server:
                     self.__print_server_info()
 
                 case "stop server":
-                    self.__stop_server()
+                    self.stop_server()
 
                 case _:
                     print("Invalid command")
@@ -157,11 +169,6 @@ class Server:
         print(f"Host: {config['ListenAddress']}")
         print(f"Port: {config['ListenPort']}")
         print()
-
-    def __stop_server(self):
-        self.stop_client_handle_thread()
-        self.stop_listening_thread()
-        self.stop_messages_thread()
 
     def __listening_thread(self):
         self.server_socket.listen(1)

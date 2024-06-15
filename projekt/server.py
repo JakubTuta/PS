@@ -15,6 +15,7 @@ import time
 ]
 """
 
+
 """ subject:
 {
     topic: str
@@ -30,6 +31,7 @@ import time
 }
 """
 
+
 """ received_message (KKO):
 {
     type: str = 'register', 'withdraw', 'message', 'status'
@@ -40,6 +42,7 @@ import time
     payload: {}
 }
 """
+
 
 """ message_to_send (KKW):
 {
@@ -53,7 +56,11 @@ import time
 }
 """
 
+
 config = {}
+
+
+
 
 
 class Server:
@@ -74,12 +81,19 @@ class Server:
         
         self.start_server()
         
+        
+        
     def start_server(self):
         self.create_client_handle_thread()
         self.create_listening_thread()
         self.create_messages_thread()
     
-    def stop_server(self):
+    
+
+    
+    
+    
+    def close_server(self):
         self.stop_client_handle_thread()
         self.stop_listening_thread()
         self.stop_messages_thread()
@@ -133,7 +147,7 @@ class Server:
                     self.__print_server_info()
 
                 case "stop server":
-                    self.stop_server()
+                    self.close_server()
 
                 case _:
                     print("Invalid command")
@@ -193,7 +207,8 @@ class Server:
         while not client["is_stop"]:
             try:
                 if len(client["socket"].recv(1, socket.MSG_PEEK)):
-                    data = client["socket"].recv(1024).decode()
+                    serialized_data = client["socket"].recv(1024).decode()
+                    data = json.loads(serialized_data)
 
                     self.received_messages.put(
                         {"socket": client["socket"], "message": data}
@@ -379,7 +394,7 @@ def load_config():
 def main():
     load_config()
 
-    server_socket = Server()
+    Server()
 
 
 if __name__ == "__main__":

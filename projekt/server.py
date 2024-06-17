@@ -46,8 +46,8 @@ import time
 
 """ message_to_send (KKW):
 {
-    creator_socket: socket | None
-    subscribers: [socket]
+    creator_socket: optional[socket]
+    subscribers: optional[list[socket]]
     type: str = 'reject'
     id: str
     topic: str = 'logs'
@@ -58,9 +58,6 @@ import time
 
 
 config = {}
-
-
-
 
 
 class Server:
@@ -79,14 +76,14 @@ class Server:
         self.stop_server = False
         self.stop_messages = False
         
-        self.start_server()
+        
         
         
         
     def start_server(self):
-        self.create_client_handle_thread()
         self.create_listening_thread()
         self.create_messages_thread()
+        self.user_interface()
     
     
 
@@ -99,42 +96,59 @@ class Server:
         self.stop_messages_thread()
 
     def create_listening_thread(self):
+        print("Creating user listening thread")
+        
         thread = threading.Thread(target=self.__listening_thread)
+        thread.daemon = True
         thread.start()
 
     def stop_listening_thread(self):
+        print("Closing user listening thread")
+        
         self.stop_server = True
 
     def create_client_handle_thread(self, client_socket, client_ip):
+        print(f"Creating user thread for {client_ip}")
+        
         new_client = {"is_stop": False, "socket": client_socket}
         self.clients[client_ip] = new_client
 
         thread = threading.Thread(target=self.__client_handle, args=(new_client,))
+        thread.daemon = True
         thread.start()
 
     def stop_client_handle_thread(self):
+        print('Closing client threads')
+        
         for client in self.clients:
             client["is_stop"] = True
 
     def create_messages_thread(self):
+        print("Creating KKO and KKW listening threads")
+        
         thread_KKO = threading.Thread(target=self.__messages_KKO_thread)
         thread_KKW = threading.Thread(target=self.__messages_KKW_thread)
+        
+        thread_KKO.daemon = True
+        thread_KKW.daemon = True
 
         thread_KKO.start()
         thread_KKW.start()
 
     def stop_messages_thread(self):
+        print("Closing messaging thread")
+        
         self.stop_messages = True
 
     def user_interface(self):
-        while True:
+        while not self.stop_server:
             print(
                 "Available commands: (quit, users/clients, subjects, server info, stop server)"
             )
             user_command = input("Enter command: ")
 
             match user_command.lower():
-                case "quit":
+                case "quit" | "stop_server":
                     break
 
                 case "users" | "clients":
@@ -146,11 +160,10 @@ class Server:
                 case "server info":
                     self.__print_server_info()
 
-                case "stop server":
-                    self.close_server()
-
                 case _:
                     print("Invalid command")
+        
+        self.close_server()
 
     def __print_clients(self):
         if not len(self.clients):
@@ -241,6 +254,16 @@ class Server:
                 time.sleep(0.001)
 
             message = self.messages_to_send.get()
+            
+            creator_socket = message.pop('creator_socket', None)
+            subscribers = message.pop('subscribers', [])
+            
+            if creator_socket:
+                creator_socket.send(Server.__prepare_send_data(message))
+
+            
+            for subscriber in subscribers:
+                subscriber.send(Server.__prepare_send_data(message))
 
     def __handle_KOM(self, client_socket, message):
         match message["type"]:
@@ -270,7 +293,7 @@ class Server:
         elif (
             message["mode"] == "producer"
             and not found_subject
-            and found_subject["creator_id"] != message["id"]
+            or found_subject["creator_id"] != message["id"]
         ):
             self.subjects.append(
                 {
@@ -312,7 +335,6 @@ class Server:
             "subscribers": map(
                 lambda subscriber: subscriber["socket"], found_subject["subscribers"]
             ),
-            "creator_socket": None,
             **message,
         }
 
@@ -329,7 +351,6 @@ class Server:
 
         new_KKW_message = {
             "creator_socket": client_socket,
-            "subscribers": [],
             "type": "reject",
             "id": message["id"],
             "topic": "logs",
@@ -342,13 +363,16 @@ class Server:
     def __find_subject(self, subject_topic):
         try:
             found_subject = next(
-                subject for subject in self.subjects if subject.topic == subject_topic
+                subject for subject in self.subjects if subject['topic'] == subject_topic
             )
 
             return found_subject
 
         except StopIteration:
             return
+    
+    def __delete_subject(self, subject_topic):
+        pass
 
     def __check_if_can_close_socket(self, client_id):
         for subject in self.subjects:
@@ -381,6 +405,20 @@ class Server:
             and message["type"] in allowed_types
             and message["mode"] in allowed_modes
         )
+    
+    @staticmethod
+    def __prepare_send_data(data):
+        json_data = json.dumps(data, default=Server.__json_serial)
+        encoded_data = json_data.encode()
+        
+        return encoded_data
+    
+    @staticmethod
+    def __json_serial(data):
+        if isinstance(data, (datetime.datetime, datetime.date)):
+            return data.isoformat()
+
+        raise TypeError(f"Type {type(data)} not serializable")
 
 
 def load_config():
@@ -394,7 +432,8 @@ def load_config():
 def main():
     load_config()
 
-    Server()
+    server = Server()
+    server.start_server()
 
 
 if __name__ == "__main__":

@@ -6,6 +6,58 @@ import threading
 import time
 import typing
 
+""" clients:
+[
+    client_ip:
+    {
+        is_stop: bool
+        socket: socket
+    }   
+]
+"""
+
+
+""" subject:
+{
+    topic: str
+    creator_id: str
+    creator_socket: socket
+    subscribers:
+        [
+            {
+                id: str
+                socket: socket
+            }
+        ]
+}
+"""
+
+
+""" received_message (KKO):
+{
+    type: str = 'register', 'withdraw', 'message', 'status'
+    id: str
+    topic: str
+    mode: str = 'producer', 'subscriber'
+    timestamp: datetime
+    payload: {}
+}
+"""
+
+
+""" message_to_send (KKW):
+{
+    creator_socket: optional[socket]
+    subscribers: optional[list[socket]]
+    type: str
+    id: str
+    topic: str
+    timestamp: datetime
+    payload: {}
+}
+"""
+
+
 config: typing.typing.Dict[str, typing.typing.Any] = {}
 
 
@@ -61,8 +113,10 @@ class Server:
         print("Creating KKO and KKW listening threads")
         thread_KKO = threading.Thread(target=self.__messages_KKO_thread)
         thread_KKW = threading.Thread(target=self.__messages_KKW_thread)
+
         thread_KKO.daemon = True
         thread_KKW.daemon = True
+
         thread_KKO.start()
         thread_KKW.start()
 
@@ -189,6 +243,8 @@ class Server:
                 self.__handle_KOM_message(message)
             case "status":
                 self.__handle_KOM_status(client_socket, message)
+            case "config":
+                self.__handle_KOM_config(client_socket, message)
 
     def __handle_KOM_register(
         self, client_socket: socket.socket, message: typing.Dict[str, typing.Any]
@@ -270,6 +326,20 @@ class Server:
             "topic": "logs",
             "timestamp": message["timestamp"],
             "payload": payload,
+        }
+
+        self.messages_to_send.put(new_KKW_message)
+
+    def __handle_KOM_config(
+        self, client_socket: socket.socket, message: typing.Dict[str, typing.Any]
+    ):
+        new_KKW_message = {
+            "creator_socket": client_socket,
+            "type": "config",
+            "id": message["id"],
+            "topic": "config",
+            "timestamp": message["timestamp"],
+            "payload": config,
         }
 
         self.messages_to_send.put(new_KKW_message)

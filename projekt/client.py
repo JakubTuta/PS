@@ -245,7 +245,7 @@ class Client:
             message = json.loads(response)
 
             if message["topic"] == "config":
-                self.subjects = message["payload"]["subjects"]
+                self.__server_config = message["payload"]
             else:
                 self.__add_to_queue(message)
 

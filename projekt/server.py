@@ -6,17 +6,6 @@ import threading
 import time
 import typing
 
-""" clients:
-[
-    client_ip:
-    {
-        is_stop: bool
-        socket: socket
-    }   
-]
-"""
-
-
 """ subject:
 {
     topic: str
@@ -48,17 +37,23 @@ import typing
 """ message_to_send (KKW):
 {
     creator_socket: optional[socket]
-    subscribers: optional[list[socket]]
+    subscribers: list[socket]
     type: str
     id: str
     topic: str
     timestamp: datetime
-    payload: {}
+    payload:
+    {
+        timestamp_of_message: datetime
+        topic_of_message: str
+        success: bool
+        message: str
+    }
 }
 """
 
 
-config: typing.typing.Dict[str, typing.typing.Any] = {}
+config: typing.Dict[str, typing.Any] = {}
 
 
 class Server:
@@ -67,7 +62,7 @@ class Server:
         self.server_socket.bind((config["ListenAddress"], config["ListenPort"]))
         self.server_socket.settimeout(config["TimeOut"])
 
-        self.clients: typing.Dict[str, typing.Dict[str, typing.Any]] = {}
+        self.clients: typing.Dict[str, socket.socket] = {}
         self.received_messages = queue.Queue()
         self.messages_to_send = queue.Queue()
         self.subjects: typing.List[typing.Dict[str, typing.Any]] = []
@@ -81,36 +76,33 @@ class Server:
         self.user_interface()
 
     def close_server(self):
-        self.stop_client_handle_thread()
         self.stop_listening_thread()
         self.stop_messages_thread()
 
     def create_listening_thread(self):
         print("Creating user listening thread")
+
         thread = threading.Thread(target=self.__listening_thread)
         thread.daemon = True
         thread.start()
 
     def stop_listening_thread(self):
         print("Closing user listening thread")
+
         self.stop_server = True
 
     def create_client_handle_thread(self, client_socket: socket.socket, client_ip: str):
         print(f"Creating user thread for {client_ip}")
-        new_client = {"is_stop": False, "socket": client_socket}
-        self.clients[client_ip] = new_client
 
-        thread = threading.Thread(target=self.__client_handle, args=(new_client,))
+        self.clients[client_ip] = client_socket
+
+        thread = threading.Thread(target=self.__client_handle, args=(client_socket,))
         thread.daemon = True
         thread.start()
 
-    def stop_client_handle_thread(self):
-        print("Closing client threads")
-        for client in self.clients.values():
-            client["is_stop"] = True
-
     def create_messages_thread(self):
         print("Creating KKO and KKW listening threads")
+
         thread_KKO = threading.Thread(target=self.__messages_KKO_thread)
         thread_KKW = threading.Thread(target=self.__messages_KKW_thread)
 
@@ -122,6 +114,7 @@ class Server:
 
     def stop_messages_thread(self):
         print("Closing messaging thread")
+
         self.stop_messages = True
 
     def user_interface(self):
@@ -147,60 +140,76 @@ class Server:
 
     def __print_clients(self):
         if not self.clients:
+            print("No clients connected")
             return
 
         print("Currently active users:")
+
         for client_ip in self.clients.keys():
             print(f"\t{client_ip}")
+
         print()
 
     def __print_subjects(self):
         if not self.subjects:
+            print("No subjects available")
             return
 
         print("Current subjects:")
         for subject in self.subjects:
             print(f"\tSubject: {subject['topic']}")
             print("\tSubscribers:")
+
             if subject["subscribers"]:
                 for subscriber in subject["subscribers"]:
                     print(f'\t\t{subscriber["id"]}')
+
             print()
 
     def __print_server_info(self):
-        print(f"Host: {config['ListenAddress']}")
-        print(f"Port: {config['ListenPort']}")
-        print()
+        server_info = json.dumps(
+            {"Host": config["ListenAddress"], "Port": config["ListenPort"]}, indent=4
+        )
+
+        print(server_info)
 
     def __listening_thread(self):
         self.server_socket.listen(1)
+
         while not self.stop_server:
             try:
                 client_socket, client_address = self.server_socket.accept()
                 guest_ip = client_address[0]
                 self.create_client_handle_thread(client_socket, guest_ip)
+
             except socket.timeout:
                 pass
+
             except Exception as e:
                 print(f"Error in listening thread: {e}")
                 self.stop_server = True
 
-    def __client_handle(self, client: typing.Dict[str, typing.Any]):
-        client["socket"].settimeout(config["TimeOut"])
-        while not client["is_stop"]:
+    def __client_handle(self, client_socket: socket.socket):
+        client_socket.settimeout(config["TimeOut"])
+
+        while not self.stop_server:
             try:
-                if len(client["socket"].recv(1, socket.MSG_PEEK)):
-                    serialized_data = client["socket"].recv(1024).decode()
+                if len(client_socket.recv(1, socket.MSG_PEEK)):
+                    serialized_data = client_socket.recv(1024).decode()
                     data = json.loads(serialized_data)
+
                     self.received_messages.put(
-                        {"socket": client["socket"], "message": data}
+                        {"socket": client_socket, "message": data}
                     )
+
             except socket.timeout:
                 pass
+
             except Exception as e:
                 print(f"Error in client handle: {e}")
                 break
-        client["socket"].close()
+
+        client_socket.close()
 
     def __messages_KKO_thread(self):
         while not self.stop_messages:
@@ -214,6 +223,9 @@ class Server:
 
             if Server.__message_validation(message):
                 self.__handle_KOM(client_socket, message)
+
+            else:
+                self.__reject_message(client_socket, message, "Invalid message format")
 
     def __messages_KKW_thread(self):
         while not self.stop_messages:
@@ -240,7 +252,7 @@ class Server:
             case "withdraw":
                 self.__handle_KOM_withdraw(message)
             case "message":
-                self.__handle_KOM_message(message)
+                self.__handle_KOM_message(client_socket, message)
             case "status":
                 self.__handle_KOM_status(client_socket, message)
             case "config":
@@ -251,13 +263,18 @@ class Server:
     ):
         found_subject = self.__find_subject(message["topic"])
 
-        if message["mode"] == "subscriber" and found_subject:
-            found_subject["subscribers"].append(
-                {
-                    "id": message["id"],
-                    "socket": client_socket,
-                }
-            )
+        if message["mode"] == "subscriber":
+            if found_subject:
+                found_subject["subscribers"].append(
+                    {
+                        "id": message["id"],
+                        "socket": client_socket,
+                    }
+                )
+
+            else:
+                self.__reject_message(client_socket, message, "Subject not found")
+
         elif message["mode"] == "producer" and (
             not found_subject or found_subject["creator_id"] != message["id"]
         ):
@@ -278,9 +295,12 @@ class Server:
 
         if message["mode"] == "producer":
             if self.__check_if_can_close_socket(found_subject["creator_id"]):
+                print("Closing subject")
                 found_subject["creator_socket"].close()
 
             for id, subscriber in enumerate(found_subject["subscribers"]):
+                self.__reject_message(subscriber["socket"], message, "Subject closed")
+
                 if self.__check_if_can_close_socket(subscriber["id"]):
                     subscriber["socket"].close()
                     del found_subject["subscribers"][id]
@@ -289,11 +309,15 @@ class Server:
 
         else:
             for id, subscriber in enumerate(found_subject["subscribers"]):
+                self.__reject_message(subscriber["socket"], message, "Subject closed")
+
                 if subscriber["id"] == message["id"]:
                     del found_subject["subscribers"][id]
                     return
 
-    def __handle_KOM_message(self, message: typing.Dict[str, typing.Any]):
+    def __handle_KOM_message(
+        self, client_socket: socket.socket, message: typing.Dict[str, typing.Any]
+    ):
         found_subject = self.__find_subject(message["topic"])
 
         if not found_subject:
@@ -308,6 +332,10 @@ class Server:
 
         self.messages_to_send.put(new_KKW_message)
 
+        self.__acknowledge_message(
+            client_socket, message, acknowledge_message="Message sent"
+        )
+
     def __handle_KOM_status(
         self, client_socket: socket.socket, message: typing.Dict[str, typing.Any]
     ):
@@ -321,8 +349,8 @@ class Server:
 
         new_KKW_message = {
             "creator_socket": client_socket,
-            "type": "reject",
-            "id": message["id"],
+            "type": "status",
+            "id": config["ServerID"],
             "topic": "logs",
             "timestamp": message["timestamp"],
             "payload": payload,
@@ -337,7 +365,7 @@ class Server:
             "creator_socket": client_socket,
             "type": "config",
             "id": message["id"],
-            "topic": "config",
+            "topic": "logs",
             "timestamp": message["timestamp"],
             "payload": config,
         }
@@ -365,18 +393,98 @@ class Server:
                 return False
         return True
 
+    def __reject_message(
+        self,
+        client_socket: socket.socket,
+        message: typing.Dict[str, typing.Any],
+        reject_message: str,
+    ):
+        new_KKW_message = {
+            "creator_socket": client_socket,
+            "type": "reject",
+            "id": message["id"],
+            "topic": "logs",
+            "timestamp": message["timestamp"],
+            "payload": {
+                "timestamp_of_message": message["timestamp"],
+                "topic_of_message": message["topic"],
+                "success": False,
+                "message": reject_message,
+            },
+        }
+
+        self.messages_to_send.put(new_KKW_message)
+
+    def __acknowledge_message(
+        self,
+        client_socket: socket.socket,
+        message: typing.Dict[str, typing.Any],
+        acknowledge_message: str,
+    ):
+        new_KKW_message = {
+            "creator_socket": client_socket,
+            "type": "acknowledge",
+            "id": message["id"],
+            "topic": "logs",
+            "timestamp": message["timestamp"],
+            "payload": {
+                "timestamp_of_message": message["timestamp"],
+                "topic_of_message": message["topic"],
+                "success": True,
+                "message": acknowledge_message,
+            },
+        }
+
+        self.messages_to_send.put(new_KKW_message)
+
     @staticmethod
     def __message_validation(message: typing.Dict[str, typing.Any]) -> bool:
         message_keys = ("type", "id", "topic", "mode", "timestamp", "payload")
-        allowed_types = ("register", "withdraw", "message", "status")
-        allowed_modes = ("producer", "subscriber")
-
-        return (
-            isinstance(message, dict)
-            and all(key in message for key in message_keys)
-            and message["type"] in allowed_types
-            and message["mode"] in allowed_modes
+        allowed_types = (
+            "register",
+            "withdraw",
+            "reject",
+            "acknowledge" "message",
+            "status",
+            "config",
         )
+        allowed_modes = ("producer", "subscriber")
+        allowed_payload_keys = (
+            "timestamp_of_message",
+            "topic_of_message",
+            "success",
+            "message",
+        )
+
+        if message["type"] in ["reject", "acknowledge"]:
+            return (
+                isinstance(message, dict)
+                and all(key in message for key in message_keys)
+                and message["type"] in allowed_types
+                and message["mode"] in allowed_modes
+                and isinstance(message["timestamp"], str)
+                and Server.__is_iso_date(message["timestamp"])
+                and isinstance(message["payload"], dict)
+                and all(key in message["payload"] for key in allowed_payload_keys)
+            )
+
+        else:
+            return (
+                isinstance(message, dict)
+                and all(key in message for key in message_keys)
+                and message["type"] in allowed_types
+                and message["mode"] in allowed_modes
+                and isinstance(message["timestamp"], str)
+                and Server.__is_iso_date(message["timestamp"])
+            )
+
+    @staticmethod
+    def __is_iso_date(date_string: str) -> bool:
+        try:
+            datetime.datetime.fromisoformat(date_string)
+            return True
+        except ValueError:
+            return False
 
     @staticmethod
     def __prepare_send_data(data: typing.Dict[str, typing.Any]) -> bytes:

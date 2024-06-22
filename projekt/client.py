@@ -18,13 +18,13 @@ import typing
     "id": str,
     "topic": str,
     "mode": str,
-    "timestamp": datetime.datetime,
+    "timestamp": str,
     "payload": typing.Dict[str, typing.Union[datetime.datetime, str, bool, str]],
 }
 """
 
 """ payload = {
-    "timestamp_of_message": datetime.datetime,
+    "timestamp_of_message": str,
     "topic_of_message": str,
     "success": bool,
     "message": str,
@@ -82,11 +82,9 @@ class Client:
     def get_status(self) -> str:
         data = {
             "created_subjects": self.created_subjects,
-            "subscribed_subjects": list(
-                map(lambda subject: subject["topic"], self.subjects)
-            ),
+            "subscribed_subjects": list(self.subscriber_threads.keys()),
         }
-        json_data = json.dumps(data, indent=4, default=self.__json_serial)
+        json_data = json.dumps(data, indent=4)
 
         return json_data
 
@@ -94,9 +92,9 @@ class Client:
         request_data = {
             "type": "status",
             "id": self.client_id,
-            "topic": "status",
+            "topic": "logs",
             "mode": "subscriber",
-            "timestamp": datetime.datetime.now(),
+            "timestamp": datetime.datetime.now().isoformat(),
             "payload": {},
         }
 
@@ -105,7 +103,7 @@ class Client:
             response = self.server_socket.recv(1024).decode()
             message = json.loads(response)
 
-            if message["topic"] == "status":
+            if message["type"] == "status":
                 callback_function(response)
             else:
                 self.__add_to_queue(message)
@@ -116,7 +114,7 @@ class Client:
             "id": self.client_id,
             "topic": topic_name,
             "mode": "producer",
-            "timestamp": datetime.datetime.now(),
+            "timestamp": datetime.datetime.now().isoformat(),
             "payload": {},
         }
 
@@ -132,7 +130,7 @@ class Client:
             "id": self.client_id,
             "topic": topic_name,
             "mode": "producer",
-            "timestamp": datetime.datetime.now(),
+            "timestamp": datetime.datetime.now().isoformat(),
             "payload": payload,
         }
 
@@ -145,7 +143,7 @@ class Client:
             "id": self.client_id,
             "topic": topic_name,
             "mode": "producer",
-            "timestamp": datetime.datetime.now(),
+            "timestamp": datetime.datetime.now().isoformat(),
             "payload": {},
         }
 
@@ -160,7 +158,7 @@ class Client:
             "id": self.client_id,
             "topic": topic_name,
             "mode": "subscriber",
-            "timestamp": datetime.datetime.now(),
+            "timestamp": datetime.datetime.now().isoformat(),
             "payload": {},
         }
 
@@ -174,7 +172,7 @@ class Client:
             "id": self.client_id,
             "topic": topic_name,
             "mode": "subscriber",
-            "timestamp": datetime.datetime.now(),
+            "timestamp": datetime.datetime.now().isoformat(),
             "payload": {},
         }
 
@@ -182,13 +180,18 @@ class Client:
             self.server_socket.send(self.__prepare_send_data(request_data))
 
     def create_subscriber_thread(self, topic_name: str):
+        self.subscriber_threads[topic_name] = {
+            "is_stop": False,
+            "queue": [],
+        }
+
         thread = threading.Thread(
             target=self.__handle_subscriber_thread, args=(topic_name,)
         )
         thread.daemon = True
         thread.start()
 
-        self.subscriber_threads[topic_name] = {"thread": thread, "is_stop": False}
+        self.subscriber_threads[topic_name]["thread"] = thread
 
     def stop(self):
         self.is_listening = False
@@ -215,8 +218,8 @@ class Client:
     def __add_to_queue(self, message: dict):
         topic_name = message["topic"]
 
-        if topic_name not in self.subscriber_threads[topic_name]["queue"]:
-            self.subscriber_threads[topic_name]["queue"] = []
+        if topic_name not in self.subscriber_threads:
+            self.subscriber_threads[topic_name] = {"queue": []}
 
         self.subscriber_threads[topic_name]["queue"].append(message)
 
@@ -233,9 +236,9 @@ class Client:
         request_data = {
             "type": "config",
             "id": self.client_id,
-            "topic": "config",
+            "topic": "logs",
             "mode": "subscriber",
-            "timestamp": datetime.datetime.now(),
+            "timestamp": datetime.datetime.now().isoformat(),
             "payload": {},
         }
 
@@ -244,7 +247,7 @@ class Client:
             response = self.server_socket.recv(1024).decode()
             message = json.loads(response)
 
-            if message["topic"] == "config":
+            if message["type"] == "config":
                 self.__server_config = message["payload"]
             else:
                 self.__add_to_queue(message)
@@ -264,17 +267,10 @@ class Client:
     def __prepare_send_data(
         data: typing.Dict[str, typing.Union[str, int, float, datetime.datetime]]
     ) -> bytes:
-        json_data = json.dumps(data, default=Client.__json_serial)
+        json_data = json.dumps(data)
         encoded_data = json_data.encode()
 
         return encoded_data
-
-    @staticmethod
-    def __json_serial(data: typing.Union[datetime.datetime, str, int, float]) -> str:
-        if isinstance(data, datetime.datetime):
-            return data.isoformat()
-
-        raise TypeError(f"Type {type(data)} not serializable")
 
 
 if __name__ == "__main__":
